@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SmartBudget</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="summary-panel" aria-labelledby="app-title">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">SmartBudget</p>
+            <h1 id="app-title">תכנון ומעקב תקציב חודשי</h1>
+          </div>
+          <label class="month-picker">
+            <span>חודש</span>
+            <input id="activeMonth" type="month" />
+          </label>
+        </div>
+
+        <div class="hero-grid">
+          <form class="income-card" id="incomeForm">
+            <label for="incomeInput">משכורת החודש</label>
+            <div class="money-input">
+              <span aria-hidden="true">₪</span>
+              <input id="incomeInput" name="income" type="number" min="0" step="0.01" placeholder="0" inputmode="decimal" />
+            </div>
+            <p class="helper">אפשר לעדכן בכל חודש בנפרד. הנתונים נשמרים בדפדפן הזה.</p>
+            <button class="primary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              שמירת משכורת
+            </button>
+          </form>
+
+          <div class="balance-card">
+            <p class="metric-label">נשאר אחרי הורדות קבועות</p>
+            <strong id="plannedBalance">₪0</strong>
+            <div class="balance-meter" aria-hidden="true">
+              <span id="fixedMeter"></span>
+            </div>
+            <dl>
+              <div>
+                <dt>משכורת</dt>
+                <dd id="incomeMetric">₪0</dd>
+              </div>
+              <div>
+                <dt>קבועות</dt>
+                <dd id="fixedMetric">₪0</dd>
+              </div>
+              <div>
+                <dt>הוצאות נוספות</dt>
+                <dd id="expenseMetric">₪0</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="final-card">
+            <p class="metric-label">יתרה בפועל החודש</p>
+            <strong id="actualBalance">₪0</strong>
+            <p id="balanceMessage">כשתוסיף משכורת והורדות, אחשב את התמונה החודשית.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace-grid">
+        <div class="tool-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">קבוע בכל חודש</p>
+              <h2>הורדות קבועות</h2>
+            </div>
+            <span id="deductionCount" class="count-pill">0</span>
+          </div>
+
+          <form class="entry-form" id="deductionForm">
+            <div class="field">
+              <label for="deductionName">שם ההורדה</label>
+              <input id="deductionName" name="name" required placeholder="שכר דירה, ביטוח, הלוואה" />
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label for="deductionAmount">סכום</label>
+                <input id="deductionAmount" name="amount" type="number" min="0" step="0.01" required placeholder="0" inputmode="decimal" />
+              </div>
+              <div class="field">
+                <label for="deductionDay">יום בחודש</label>
+                <input id="deductionDay" name="day" type="number" min="1" max="31" placeholder="1" inputmode="numeric" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="deductionCategory">קטגוריה</label>
+              <select id="deductionCategory" name="category">
+                <option>דיור</option>
+                <option>חשבונות</option>
+                <option>תחבורה</option>
+                <option>בריאות</option>
+                <option>חיסכון</option>
+                <option>אחר</option>
+              </select>
+            </div>
+            <button class="secondary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              הוספת הורדה
+            </button>
+          </form>
+
+          <div id="deductionsList" class="item-list" aria-live="polite"></div>
+        </div>
+
+        <div class="tool-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">מעקב חודשי</p>
+              <h2>הוצאות נוספות</h2>
+            </div>
+            <span id="expenseCount" class="count-pill">0</span>
+          </div>
+
+          <form class="entry-form" id="expenseForm">
+            <div class="field">
+              <label for="expenseName">שם ההוצאה</label>
+              <input id="expenseName" name="name" required placeholder="סופר, מתנה, תיקון רכב" />
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label for="expenseAmount">סכום</label>
+                <input id="expenseAmount" name="amount" type="number" min="0" step="0.01" required placeholder="0" inputmode="decimal" />
+              </div>
+              <div class="field">
+                <label for="expenseCategory">קטגוריה</label>
+                <select id="expenseCategory" name="category">
+                  <option>מזון</option>
+                  <option>בית</option>
+                  <option>תחבורה</option>
+                  <option>בילויים</option>
+                  <option>בריאות</option>
+                  <option>אחר</option>
+                </select>
+              </div>
+            </div>
+            <button class="secondary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              הוספת הוצאה
+            </button>
+          </form>
+
+          <div id="expensesList" class="item-list" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="insights-panel" aria-labelledby="insights-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">תמונה מהירה</p>
+            <h2 id="insights-title">פירוט לפי קטגוריות</h2>
+          </div>
+          <button id="resetMonth" class="ghost-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v6h6"/></svg>
+            איפוס החודש
+          </button>
+        </div>
+        <div id="categoryBreakdown" class="breakdown-grid"></div>
+      </section>
+    </main>
+
+    <template id="emptyTemplate">
+      <div class="empty-state">
+        <div class="empty-mark" aria-hidden="true"></div>
+        <p></p>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
