@@ -149,25 +149,33 @@ export class SupabaseBudgetRepository implements BudgetRepository {
   }
 
   private async upsertCategories(budgetSpaceId: string, categories: Category[]): Promise<Map<string, string>> {
-    const result = await this.client
-      .from("categories")
-      .upsert(
-        categories.map((category) => ({
+    const categoryRows = splitRowsByUuidId(
+      categories.map((category) => ({
+        clientId: category.id,
+        row: {
           budget_space_id: budgetSpaceId,
           name: category.name,
           color: category.color,
           is_active: category.isActive,
           sort_order: category.sortOrder,
-          ...withUuidId(category.id),
-        })),
-        { onConflict: "budget_space_id,name" },
-      )
-      .select("id,name");
-    if (result.error) throw result.error;
+        },
+      })),
+    );
+
+    const savedRows: Array<{ id: unknown; name: unknown }> = [];
+    for (const rows of [categoryRows.withUuidId, categoryRows.withoutUuidId]) {
+      if (!rows.length) continue;
+      const result = await this.client
+        .from("categories")
+        .upsert(rows, { onConflict: "budget_space_id,name" })
+        .select("id,name");
+      if (result.error) throw result.error;
+      savedRows.push(...(result.data || []));
+    }
 
     const map = new Map<string, string>();
     categories.forEach((category) => {
-      const saved = result.data?.find((row) => row.name === category.name);
+      const saved = savedRows.find((row) => row.name === category.name);
       if (saved?.id) map.set(category.id, String(saved.id));
     });
     return map;
@@ -198,36 +206,40 @@ export class SupabaseBudgetRepository implements BudgetRepository {
 
     const expenseRows = Object.values(snapshot.months).flatMap((budget: MonthBudget) =>
       budget.expenses.map((expense: Expense) => ({
-        budget_space_id: budgetSpaceId,
-        name: expense.name,
-        amount: expense.amount,
-        category_id: categoryIdMap.get(expense.categoryId) || expense.categoryId,
-        expense_date: expense.date.slice(0, 10),
-        month: monthToDate(expense.month),
-        ...withUuidId(expense.id),
+        clientId: expense.id,
+        row: {
+          budget_space_id: budgetSpaceId,
+          name: expense.name,
+          amount: expense.amount,
+          category_id: categoryIdMap.get(expense.categoryId) || expense.categoryId,
+          expense_date: expense.date.slice(0, 10),
+          month: monthToDate(expense.month),
+        },
       })),
     );
-    if (expenseRows.length) await this.insert("expenses", expenseRows);
+    await this.insertRowsWithOptionalUuidIds("expenses", expenseRows);
   }
 
   private async replaceDeductions(budgetSpaceId: string, deductions: FixedDeduction[], categoryIdMap: Map<string, string>): Promise<void> {
     await this.deleteBySpace("fixed_deductions", budgetSpaceId);
     if (!deductions.length) return;
 
-    await this.insert(
+    await this.insertRowsWithOptionalUuidIds(
       "fixed_deductions",
       deductions.map((deduction) => ({
-        budget_space_id: budgetSpaceId,
-        name: deduction.name,
-        amount: deduction.amount,
-        day_of_month: deduction.day,
-        category_id: categoryIdMap.get(deduction.categoryId) || deduction.categoryId,
-        is_active: deduction.active,
-        recurrence_type: deduction.recurrence,
-        start_month: monthToDate(deduction.startMonth),
-        end_month: deduction.endMonth ? monthToDate(deduction.endMonth) : null,
-        installment_count: deduction.installmentCount || null,
-        ...withUuidId(deduction.id),
+        clientId: deduction.id,
+        row: {
+          budget_space_id: budgetSpaceId,
+          name: deduction.name,
+          amount: deduction.amount,
+          day_of_month: deduction.day,
+          category_id: categoryIdMap.get(deduction.categoryId) || deduction.categoryId,
+          is_active: deduction.active,
+          recurrence_type: deduction.recurrence,
+          start_month: monthToDate(deduction.startMonth),
+          end_month: deduction.endMonth ? monthToDate(deduction.endMonth) : null,
+          installment_count: deduction.installmentCount || null,
+        },
       })),
     );
   }
@@ -236,19 +248,27 @@ export class SupabaseBudgetRepository implements BudgetRepository {
     await this.deleteBySpace("savings_goals", budgetSpaceId);
     if (!goals.length) return;
 
-    await this.insert(
+    await this.insertRowsWithOptionalUuidIds(
       "savings_goals",
       goals.map((goal) => ({
-        budget_space_id: budgetSpaceId,
-        name: goal.name,
-        target_amount: goal.targetAmount,
-        current_amount: goal.currentAmount,
-        monthly_target: goal.monthlyTarget,
-        deadline_month: goal.deadlineMonth ? monthToDate(goal.deadlineMonth) : null,
-        is_active: goal.isActive,
-        ...withUuidId(goal.id),
+        clientId: goal.id,
+        row: {
+          budget_space_id: budgetSpaceId,
+          name: goal.name,
+          target_amount: goal.targetAmount,
+          current_amount: goal.currentAmount,
+          monthly_target: goal.monthlyTarget,
+          deadline_month: goal.deadlineMonth ? monthToDate(goal.deadlineMonth) : null,
+          is_active: goal.isActive,
+        },
       })),
     );
+  }
+
+  private async insertRowsWithOptionalUuidIds(table: string, rows: Array<{ clientId: unknown; row: Record<string, unknown> }>): Promise<void> {
+    const splitRows = splitRowsByUuidId(rows);
+    if (splitRows.withUuidId.length) await this.insert(table, splitRows.withUuidId);
+    if (splitRows.withoutUuidId.length) await this.insert(table, splitRows.withoutUuidId);
   }
 
   private async insert(table: string, rows: unknown[]): Promise<void> {
@@ -299,10 +319,26 @@ function toSavingsGoal(row: Row): SavingsGoal {
   };
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-export function withUuidId(value: string): { id: string } | Record<string, never> {
-  return isUuid(value) ? { id: value } : {};
+export function splitRowsByUuidId(rows: Array<{ clientId: unknown; row: Record<string, unknown> }>): {
+  withUuidId: Array<Record<string, unknown>>;
+  withoutUuidId: Array<Record<string, unknown>>;
+} {
+  return rows.reduce(
+    (groups, item) => {
+      if (isUuid(item.clientId)) {
+        groups.withUuidId.push({ ...item.row, id: item.clientId });
+      } else {
+        groups.withoutUuidId.push(item.row);
+      }
+      return groups;
+    },
+    { withUuidId: [], withoutUuidId: [] } as {
+      withUuidId: Array<Record<string, unknown>>;
+      withoutUuidId: Array<Record<string, unknown>>;
+    },
+  );
 }
