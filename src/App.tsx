@@ -1,15 +1,13 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   addMonths,
   createEmptyMonth,
-  createEmptySnapshot,
   createId,
   ensureMonth,
   formatMonthName,
   getActiveDeductionsForMonth,
   getCategoryName,
-  getCurrentMonth,
   getRecentMonthKeys,
   getSpendRatio,
   isDeductionActiveForMonth,
@@ -24,7 +22,7 @@ import type { BudgetRepository, BudgetSnapshot, Category, FixedDeduction, MonthB
 
 const localRepository = new LocalBudgetRepository();
 
-type TabId = "overview" | "activity" | "reports" | "planning";
+type TabId = "overview" | "activity" | "reports" | "planning" | "settings";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
@@ -210,41 +208,39 @@ export function App() {
         <main className="app-shell">
           <Header
             activeMonth={activeMonth}
-            session={session}
             status={status}
-            authLoading={authLoading}
-            cloudReady={isSupabaseConfigured}
             onMonthChange={(nextMonth) => commit((current) => ensureMonth({ ...current, activeMonth: nextMonth }, nextMonth), "החודש הוחלף")}
-            onSignIn={signInWithGoogle}
-            onSignOut={signOut}
+            onOpenSettings={() => setActiveTab("settings")}
           />
 
           {error && <div className="error-banner">{error}</div>}
 
-          <TabBar active={activeTab} onChange={setActiveTab} />
+          <div className="tab-row">
+            <TabBar active={activeTab} onChange={setActiveTab} />
+            <BalanceChips plannedBalance={plannedBalance} actualBalance={actualBalance} />
+          </div>
 
           <div className="tab-panel">
             {activeTab === "overview" && (
-              <>
-                <section className="summary-panel" aria-labelledby="app-title">
-                  <SummaryPanel
-                    month={month}
-                    fixedTotal={fixedTotal}
-                    expenseTotal={expenseTotal}
-                    plannedBalance={plannedBalance}
-                    actualBalance={actualBalance}
-                    onSave={(income, savingsTarget) => updateMonth(activeMonth, { income, savingsTarget })}
-                  />
-                </section>
-
-                <SyncPanel
-                  mode={repository.mode}
-                  migratedToCloudAt={snapshot.migratedToCloudAt}
-                  onMigrate={migrateLocalToCloud}
-                  onExport={exportJson}
-                  onImport={importJson}
+              <div className="overview-grid">
+                <PlanCard
+                  month={month}
+                  fixedTotal={fixedTotal}
+                  expenseTotal={expenseTotal}
+                  onSave={(income, savingsTarget) => updateMonth(activeMonth, { income, savingsTarget })}
                 />
-              </>
+
+                <BalanceOverviewCard
+                  snapshot={snapshot}
+                  activeMonth={activeMonth}
+                  month={month}
+                  fixedTotal={fixedTotal}
+                  expenseTotal={expenseTotal}
+                  plannedBalance={plannedBalance}
+                />
+
+                <CategoryQuickList categories={activeCategories} month={month} />
+              </div>
             )}
 
             {activeTab === "activity" && (
@@ -285,7 +281,7 @@ export function App() {
               </section>
             )}
 
-            {activeTab === "reports" && <ReportsPanel snapshot={snapshot} activeMonth={activeMonth} fixedTotal={fixedTotal} />}
+            {activeTab === "reports" && <ReportsPanel snapshot={snapshot} activeMonth={activeMonth} />}
 
             {activeTab === "planning" && (
               <PlanningGrid
@@ -293,6 +289,23 @@ export function App() {
                 activeMonth={activeMonth}
                 onSnapshotChange={(next) => commit(() => next, "התכנון עודכן")}
               />
+            )}
+
+            {activeTab === "settings" && (
+              <div className="settings-panel-wrap">
+                <SyncPanel
+                  mode={repository.mode}
+                  migratedToCloudAt={snapshot.migratedToCloudAt}
+                  session={session}
+                  authLoading={authLoading}
+                  cloudReady={isSupabaseConfigured}
+                  onSignIn={signInWithGoogle}
+                  onSignOut={signOut}
+                  onMigrate={migrateLocalToCloud}
+                  onExport={exportJson}
+                  onImport={importJson}
+                />
+              </div>
             )}
           </div>
         </main>
@@ -306,6 +319,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "activity", label: "תנועות", icon: <IconActivity /> },
   { id: "reports", label: "דוחות", icon: <IconReports /> },
   { id: "planning", label: "תכנון", icon: <IconPlanning /> },
+  { id: "settings", label: "הגדרות", icon: <IconSettings /> },
 ];
 
 function TabBar({ active, onChange }: { active: TabId; onChange: (id: TabId) => void }) {
@@ -366,68 +380,119 @@ function IconPlanning() {
   );
 }
 
+function IconSettings() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3.1" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.87 1.2V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 7a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 10 2.6V2.5a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 17 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 21.4 10h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z" />
+    </svg>
+  );
+}
+
+function IconChevronLeft() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 6l-6 6 6 6" />
+    </svg>
+  );
+}
+
+function IconChevronRight() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+function BalanceChips({ plannedBalance, actualBalance }: { plannedBalance: number; actualBalance: number }) {
+  return (
+    <div className="balance-chips">
+      <div className="balance-chip dark">
+        <span>יתרה בפועל</span>
+        <strong className={actualBalance < 0 ? "negative" : "positive"}>{money(actualBalance)}</strong>
+      </div>
+      <div className="balance-chip">
+        <span>מתוכנן</span>
+        <strong className={plannedBalance < 0 ? "negative" : ""}>{money(plannedBalance)}</strong>
+      </div>
+    </div>
+  );
+}
+
 function Header({
   activeMonth,
-  session,
   status,
-  authLoading,
-  cloudReady,
   onMonthChange,
-  onSignIn,
-  onSignOut,
+  onOpenSettings,
 }: {
   activeMonth: MonthKey;
-  session: Session | null;
   status: string;
-  authLoading: boolean;
-  cloudReady: boolean;
   onMonthChange: (month: MonthKey) => void;
-  onSignIn: () => void;
-  onSignOut: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
-    <header className="topbar app-topbar">
-      <div>
-        <p className="eyebrow">SmartBudget</p>
-        <h1 id="app-title">תכנון ומעקב תקציב חודשי</h1>
-        <p className="topbar-copy">תקציב אישי עם הוצאות קבועות, יעדי חיסכון, דוחות וסנכרון Supabase.</p>
-      </div>
-      <div className="topbar-actions">
-        <label className="month-picker">
-          <span>חודש</span>
-          <input id="activeMonth" type="month" value={activeMonth} onChange={(event) => onMonthChange(event.target.value as MonthKey)} />
-        </label>
-        <div className="auth-card">
-          <span>{status}</span>
-          {authLoading ? (
-            <strong>בודק חיבור...</strong>
-          ) : session ? (
-            <>
-              <strong>{session.user.email || "מחובר"}</strong>
-              <button className="ghost-button" type="button" onClick={onSignOut}>יציאה</button>
-            </>
-          ) : (
-            <button className="primary-button" type="button" onClick={onSignIn} disabled={!cloudReady}>כניסה עם Google</button>
-          )}
+    <header className="app-topbar">
+      <div className="brand">
+        <span className="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="19" height="19" fill="none" stroke="#fff" strokeWidth="1.8">
+            <path d="M8 13a4 4 0 0 1 4-4h9a2 2 0 0 1 0 4h-9a1 1 0 1 0 0 2h11a2 2 0 0 1 2 2v5a4 4 0 0 1-4 4h-9a4 4 0 0 1-4-4z" />
+            <circle cx="21" cy="18" r="1.3" fill="#fff" stroke="none" />
+          </svg>
+        </span>
+        <div>
+          <strong>SmartBudget</strong>
+          <span>תכנון ומעקב תקציב חודשי</span>
         </div>
       </div>
+
+      <div className="topbar-spacer" />
+
+      <MonthStepper activeMonth={activeMonth} onChange={onMonthChange} />
+
+      <span className="status-pill">
+        <i aria-hidden="true" />
+        {status}
+      </span>
+
+      <button type="button" className="icon-button" aria-label="הגדרות" onClick={onOpenSettings}>
+        <IconSettings />
+      </button>
     </header>
   );
 }
 
-function SummaryPanel({
+function MonthStepper({ activeMonth, onChange }: { activeMonth: MonthKey; onChange: (month: MonthKey) => void }) {
+  return (
+    <div className="month-stepper">
+      <button type="button" aria-label="חודש קודם" onClick={() => onChange(addMonths(activeMonth, -1))}>
+        <IconChevronLeft />
+      </button>
+      <span className="month-stepper-label">
+        {formatMonthName(activeMonth)}
+        <input
+          type="month"
+          value={activeMonth}
+          aria-label="בחירת חודש"
+          onChange={(event) => event.target.value && onChange(event.target.value as MonthKey)}
+        />
+      </span>
+      <button type="button" aria-label="חודש הבא" onClick={() => onChange(addMonths(activeMonth, 1))}>
+        <IconChevronRight />
+      </button>
+    </div>
+  );
+}
+
+function PlanCard({
   month,
   fixedTotal,
   expenseTotal,
-  plannedBalance,
-  actualBalance,
   onSave,
 }: {
   month: MonthBudget;
   fixedTotal: number;
   expenseTotal: number;
-  plannedBalance: number;
-  actualBalance: number;
   onSave: (income: number, savingsTarget: number) => void;
 }) {
   const [income, setIncome] = useState(month.income);
@@ -438,46 +503,140 @@ function SummaryPanel({
     setSavingsTarget(month.savingsTarget);
   }, [month.income, month.savingsTarget]);
 
+  const total = fixedTotal + expenseTotal + month.savingsTarget;
+
   return (
-    <div className="hero-grid">
-      <form id="incomeForm" className="income-card" onSubmit={(event) => { event.preventDefault(); onSave(income, savingsTarget); }}>
-        <label htmlFor="incomeInput">משכורת החודש</label>
-        <MoneyInput id="incomeInput" value={income} onChange={setIncome} />
-        <label htmlFor="savingsTargetInput">יעד חיסכון חודשי</label>
-        <MoneyInput id="savingsTargetInput" value={savingsTarget} onChange={setSavingsTarget} />
-        <p className="helper">היעד יורד מהיתרה המתוכננת כדי לראות אם נשאר כסף גם אחרי חיסכון.</p>
+    <section className="tool-panel plan-card" aria-label="משכורת וחיסכון">
+      <div>
+        <p className="eyebrow">תכנון החודש</p>
+        <h2>משכורת וחיסכון</h2>
+      </div>
+      <form id="incomeForm" className="entry-form" onSubmit={(event) => { event.preventDefault(); onSave(income, savingsTarget); }}>
+        <div className="field">
+          <label htmlFor="incomeInput">משכורת החודש</label>
+          <MoneyInput id="incomeInput" value={income} onChange={setIncome} />
+        </div>
+        <div className="field">
+          <label htmlFor="savingsTargetInput">יעד חיסכון חודשי</label>
+          <MoneyInput id="savingsTargetInput" value={savingsTarget} onChange={setSavingsTarget} />
+        </div>
         <button className="primary-button" type="submit">שמירת תכנון</button>
       </form>
+      <div className="allocation-meter">
+        <span className="metric-label">חלוקת המשכורת</span>
+        <div className="allocation-bar" aria-hidden="true">
+          <i style={{ width: `${getSpendRatio(fixedTotal, total)}%`, background: "var(--accent)" }} />
+          <i style={{ width: `${getSpendRatio(expenseTotal, total)}%`, background: "var(--amber)" }} />
+          <i style={{ width: `${getSpendRatio(month.savingsTarget, total)}%`, background: "#8f7df2" }} />
+        </div>
+        <div className="allocation-legend">
+          <span><i style={{ background: "var(--accent)" }} />קבועות</span>
+          <span><i style={{ background: "var(--amber)" }} />נוספות</span>
+          <span><i style={{ background: "#8f7df2" }} />חיסכון</span>
+        </div>
+      </div>
+    </section>
+  );
+}
 
-      <div className="balance-card">
-        <p className="metric-label">נשאר אחרי קבועות וחיסכון</p>
-        <strong id="plannedBalance" className={plannedBalance < 0 ? "negative" : ""}>{money(plannedBalance)}</strong>
-        <div className="balance-meter" aria-hidden="true"><span id="fixedMeter" style={{ width: `${getSpendRatio(fixedTotal + month.savingsTarget, month.income)}%` }} /></div>
+function BalanceOverviewCard({
+  snapshot,
+  activeMonth,
+  month,
+  fixedTotal,
+  expenseTotal,
+  plannedBalance,
+}: {
+  snapshot: BudgetSnapshot;
+  activeMonth: MonthKey;
+  month: MonthBudget;
+  fixedTotal: number;
+  expenseTotal: number;
+  plannedBalance: number;
+}) {
+  const rows = getMonthlyRows(snapshot, activeMonth, 12);
+  const usedRatio = getSpendRatio(fixedTotal + expenseTotal + month.savingsTarget, month.income);
+  const monthlyAverage = rows.length ? rows.reduce((total, row) => total + row.total, 0) / rows.length : 0;
+
+  return (
+    <section className="balance-card" aria-label="נשאר אחרי קבועות וחיסכון">
+      <div className="panel-heading">
+        <div>
+          <p className="metric-label">נשאר אחרי קבועות וחיסכון</p>
+          <strong className={plannedBalance < 0 ? "negative" : ""}>{money(plannedBalance)}</strong>
+        </div>
+        <span className="used-ratio-pill">{Math.round(usedRatio)}% מהמשכורת בשימוש</span>
+      </div>
+      <div>
+        <div className="balance-meter" aria-hidden="true"><span style={{ width: `${usedRatio}%` }} /></div>
         <dl>
-          <div><dt>משכורת</dt><dd id="incomeMetric">{money(month.income)}</dd></div>
-          <div><dt>קבועות</dt><dd id="fixedMetric">{money(fixedTotal)}</dd></div>
-          <div><dt>הוצאות נוספות</dt><dd id="expenseMetric">{money(expenseTotal)}</dd></div>
+          <div><dt>משכורת</dt><dd>{money(month.income)}</dd></div>
+          <div><dt>קבועות</dt><dd>{money(fixedTotal)}</dd></div>
+          <div><dt>נוספות</dt><dd>{money(expenseTotal)}</dd></div>
+          <div><dt>חיסכון</dt><dd>{money(month.savingsTarget)}</dd></div>
         </dl>
       </div>
-
-      <div className="final-card">
-        <p className="metric-label">יתרה בפועל החודש</p>
-        <strong id="actualBalance" className={actualBalance < 0 ? "negative" : "positive"}>{money(actualBalance)}</strong>
-        <p id="balanceMessage">{getBalanceMessage(month.income, fixedTotal, expenseTotal, month.savingsTarget, actualBalance)}</p>
+      <div className="mini-chart">
+        <div className="mini-chart-heading">
+          <span>12 החודשים האחרונים</span>
+          <span>ממוצע {money(monthlyAverage)}</span>
+        </div>
+        <MonthlyChart rows={rows} activeMonth={activeMonth} compact />
       </div>
-    </div>
+    </section>
+  );
+}
+
+function CategoryQuickList({ categories, month }: { categories: Category[]; month: MonthBudget }) {
+  const diffs = getCategoryDiffs(categories, month);
+
+  return (
+    <section className="tool-panel" aria-label="תכנון מול בפועל">
+      <PanelHeading eyebrow="לפי קטגוריה" title="תכנון מול בפועל" count={categories.length} />
+      <div className="item-list">
+        {!diffs.length ? (
+          <EmptyState text="הוסף קטגוריות בלשונית התכנון כדי לראות כאן תמונה מהירה." />
+        ) : (
+          diffs.map(({ category, planned, actual, diff }) => (
+            <article className="quick-row" key={category.id}>
+              <span className="swatch" style={{ background: category.color }} />
+              <div>
+                <div className="quick-row-top">
+                  <strong>{category.name}</strong>
+                  <span>{money(actual)} / {money(planned)}</span>
+                </div>
+                <div className="mini-meter" aria-hidden="true">
+                  <i style={{ width: `${getSpendRatio(actual, planned || actual)}%`, background: category.color }} />
+                </div>
+              </div>
+              <span className={diff < 0 ? "negative" : "positive"}>{diff < 0 ? "חריגה " : "נשאר "}{money(Math.abs(diff))}</span>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
 function SyncPanel({
   mode,
   migratedToCloudAt,
+  session,
+  authLoading,
+  cloudReady,
+  onSignIn,
+  onSignOut,
   onMigrate,
   onExport,
   onImport,
 }: {
   mode: "local" | "cloud";
   migratedToCloudAt?: string;
+  session: Session | null;
+  authLoading: boolean;
+  cloudReady: boolean;
+  onSignIn: () => void;
+  onSignOut: () => void;
   onMigrate: () => void;
   onExport: () => void;
   onImport: (file: File | null) => void;
@@ -485,9 +644,21 @@ function SyncPanel({
   return (
     <section className="sync-panel">
       <div>
-        <p className="eyebrow">{mode === "cloud" ? "ענן פעיל" : "מצב מקומי"}</p>
+        <p className="eyebrow">חשבון וסנכרון</p>
         <h2>{mode === "cloud" ? "הנתונים נשמרים ב-Supabase" : "אפשר לעבוד מקומית עד שמתחברים"}</h2>
         {migratedToCloudAt && <p className="helper">העברה אחרונה לענן: {new Date(migratedToCloudAt).toLocaleString("he-IL")}</p>}
+      </div>
+      <div className="auth-row">
+        {authLoading ? (
+          <span className="helper">בודק חיבור...</span>
+        ) : session ? (
+          <>
+            <span className="helper">{session.user.email || "מחובר"}</span>
+            <button className="ghost-button" type="button" onClick={onSignOut}>יציאה</button>
+          </>
+        ) : (
+          <button className="primary-button" type="button" onClick={onSignIn} disabled={!cloudReady}>כניסה עם Google</button>
+        )}
       </div>
       <div className="sync-actions">
         <button className="secondary-button" type="button" onClick={onMigrate}>העבר נתונים לענן</button>
@@ -501,54 +672,74 @@ function SyncPanel({
   );
 }
 
-function ReportsPanel({ snapshot, activeMonth }: { snapshot: BudgetSnapshot; activeMonth: MonthKey; fixedTotal: number }) {
-  const rows = getRecentMonthKeys(activeMonth, 12).map((monthKey) => {
+type MonthlyRow = { monthKey: MonthKey; fixed: number; extra: number; savingsTarget: number; total: number };
+
+function getMonthlyRows(snapshot: BudgetSnapshot, activeMonth: MonthKey, count: number): MonthlyRow[] {
+  return getRecentMonthKeys(activeMonth, count).map((monthKey) => {
     const budget = snapshot.months[monthKey] || createEmptyMonth();
     const fixed = sum(getActiveDeductionsForMonth(snapshot.deductions, monthKey));
     const extra = sum(budget.expenses);
     return { monthKey, fixed, extra, savingsTarget: budget.savingsTarget, total: fixed + extra };
   });
+}
+
+function MonthlyChart({ rows, activeMonth, compact }: { rows: MonthlyRow[]; activeMonth: MonthKey; compact?: boolean }) {
   const max = Math.max(...rows.map((row) => row.total + row.savingsTarget), 0);
+
+  if (!max) {
+    return <EmptyState text="אחרי שתוסיף הורדות או הוצאות, יופיע כאן גרף עמודות של החודשים האחרונים." />;
+  }
+
+  return (
+    <div className={`monthly-chart${compact ? " compact" : ""}`}>
+      {rows.map((row) => (
+        <article className={`month-bar ${row.monthKey === activeMonth ? "current" : ""}`} key={row.monthKey}>
+          <div className="bar-track" title={`${formatMonthName(row.monthKey)}: ${money(row.total)}`}>
+            <div className="bar-stack" style={{ height: `${getSpendRatio(row.total + row.savingsTarget, max)}%` }}>
+              <div className="bar-segment savings" style={{ height: `${getSpendRatio(row.savingsTarget, row.total + row.savingsTarget)}%` }} />
+              <div className="bar-segment extra" style={{ height: `${getSpendRatio(row.extra, row.total + row.savingsTarget)}%` }} />
+              <div className="bar-segment fixed" style={{ height: `${getSpendRatio(row.fixed, row.total + row.savingsTarget)}%` }} />
+            </div>
+          </div>
+          {!compact && <div className="month-label"><strong>{formatMonthName(row.monthKey)}</strong><span>{money(row.total)}</span></div>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ReportsPanel({ snapshot, activeMonth }: { snapshot: BudgetSnapshot; activeMonth: MonthKey }) {
+  const rows = getMonthlyRows(snapshot, activeMonth, 12);
   const current = snapshot.months[activeMonth] || createEmptyMonth();
   const monthlyAverage = rows.length ? rows.reduce((total, row) => total + row.total, 0) / rows.length : 0;
   const categoryGrowth = getFastestGrowingCategory(snapshot, activeMonth);
 
   return (
-    <section className="chart-panel" aria-labelledby="monthly-chart-title">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">מבט חודשי</p>
-          <h2 id="monthly-chart-title">מעקב הוצאות לפי חודשים</h2>
+    <div className="reports-grid">
+      <section className="chart-panel" aria-labelledby="monthly-chart-title">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">מבט חודשי</p>
+            <h2 id="monthly-chart-title">מעקב הוצאות לפי חודשים</h2>
+          </div>
+          <div className="chart-legend" aria-label="מקרא גרף">
+            <span><i className="legend-fixed" />קבועות</span>
+            <span><i className="legend-extra" />נוספות</span>
+            <span><i className="legend-savings" />יעד חיסכון</span>
+          </div>
         </div>
-        <div className="chart-legend" aria-label="מקרא גרף">
-          <span><i className="legend-fixed" />קבועות</span>
-          <span><i className="legend-extra" />נוספות</span>
-          <span><i className="legend-savings" />יעד חיסכון</span>
+        <div id="monthlyChart" aria-live="polite">
+          <MonthlyChart rows={rows} activeMonth={activeMonth} />
         </div>
-      </div>
-      <div id="monthlyChart" className="monthly-chart" aria-live="polite">
-        {!max ? (
-          <EmptyState text="אחרי שתוסיף הורדות או הוצאות, יופיע כאן גרף עמודות של החודשים האחרונים." />
-        ) : rows.map((row) => (
-          <article className={`month-bar ${row.monthKey === activeMonth ? "current" : ""}`} key={row.monthKey}>
-            <div className="bar-track" title={`${formatMonthName(row.monthKey)}: ${money(row.total)}`}>
-              <div className="bar-stack" style={{ height: `${getSpendRatio(row.total + row.savingsTarget, max)}%` }}>
-                <div className="bar-segment savings" style={{ height: `${getSpendRatio(row.savingsTarget, row.total + row.savingsTarget)}%` }} />
-                <div className="bar-segment extra" style={{ height: `${getSpendRatio(row.extra, row.total + row.savingsTarget)}%` }} />
-                <div className="bar-segment fixed" style={{ height: `${getSpendRatio(row.fixed, row.total + row.savingsTarget)}%` }} />
-              </div>
-            </div>
-            <div className="month-label"><strong>{formatMonthName(row.monthKey)}</strong><span>{money(row.total)}</span></div>
-          </article>
-        ))}
-      </div>
-      <div className="report-strip">
-        <Metric title="ממוצע חודשי" value={money(monthlyAverage)} />
-        <Metric title="החודש הנבחר" value={money(sum(current.expenses))} />
-        <Metric title="קטגוריה שגדלה" value={categoryGrowth || "אין מספיק נתונים"} />
-      </div>
+        <div className="report-strip">
+          <Metric title="ממוצע חודשי" value={money(monthlyAverage)} />
+          <Metric title="החודש הנבחר" value={money(sum(current.expenses))} />
+          <Metric title="קטגוריה שגדלה" value={categoryGrowth || "אין מספיק נתונים"} />
+        </div>
+      </section>
+
       <CategoryBreakdown snapshot={snapshot} activeMonth={activeMonth} />
-    </section>
+    </div>
   );
 }
 
@@ -684,6 +875,18 @@ function ExpensesPanel({
   );
 }
 
+type CategoryDiff = { category: Category; planned: number; actual: number; diff: number };
+
+function getCategoryDiffs(categories: Category[], month: MonthBudget): CategoryDiff[] {
+  return categories.map((category) => {
+    const planned = month.categoryBudgets[category.id] || 0;
+    const actual = month.expenses
+      .filter((expense) => expense.categoryId === category.id)
+      .reduce((total, expense) => total + expense.amount, 0);
+    return { category, planned, actual, diff: planned - actual };
+  });
+}
+
 function PlanningGrid({
   snapshot,
   activeMonth,
@@ -752,24 +955,22 @@ function PlanningGrid({
     event.currentTarget.reset();
   };
 
+  const activeCategories = snapshot.categories.filter((item) => item.isActive);
+  const diffs = getCategoryDiffs(activeCategories, month);
+
   return (
     <section className="planning-grid">
       <div className="tool-panel">
-        <PanelHeading eyebrow="תכנון מול בפועל" title="תקציב לפי קטגוריה" count={snapshot.categories.filter((item) => item.isActive).length} />
+        <PanelHeading eyebrow="תכנון מול בפועל" title="תקציב לפי קטגוריה" count={activeCategories.length} />
         <div className="category-budget-list">
-          {snapshot.categories.filter((category) => category.isActive).map((category) => {
-            const planned = month.categoryBudgets[category.id] || 0;
-            const actual = month.expenses.filter((expense) => expense.categoryId === category.id).reduce((total, expense) => total + expense.amount, 0);
-            const diff = planned - actual;
-            return (
-              <article className="budget-row" key={category.id}>
-                <span className="swatch" style={{ background: category.color }} />
-                <strong>{category.name}</strong>
-                <MoneyInput id={`budget-${category.id}`} value={planned} onChange={(value) => updateCategoryBudget(category.id, value)} />
-                <span className={diff < 0 ? "negative" : "positive"}>{diff < 0 ? "חריגה " : "נשאר "}{money(Math.abs(diff))}</span>
-              </article>
-            );
-          })}
+          {diffs.map(({ category, planned, diff }) => (
+            <article className="budget-row" key={category.id}>
+              <span className="swatch" style={{ background: category.color }} />
+              <strong>{category.name}</strong>
+              <MoneyInput id={`budget-${category.id}`} value={planned} onChange={(value) => updateCategoryBudget(category.id, value)} />
+              <span className={diff < 0 ? "negative" : "positive"}>{diff < 0 ? "חריגה " : "נשאר "}{money(Math.abs(diff))}</span>
+            </article>
+          ))}
         </div>
         <form className="entry-form compact-form" onSubmit={addCategory}>
           <div className="form-row">
@@ -931,13 +1132,6 @@ function Metric({ title, value }: { title: string; value: string }) {
 
 function EmptyState({ text }: { text: string }) {
   return <div className="empty-state"><div className="empty-mark" aria-hidden="true" /><p>{text}</p></div>;
-}
-
-function getBalanceMessage(income: number, fixedTotal: number, expenseTotal: number, savingsTarget: number, balance: number): string {
-  if (!income && !fixedTotal && !expenseTotal && !savingsTarget) return "כשתוסיף משכורת והורדות, אחשב את התמונה החודשית.";
-  if (balance < 0) return `החודש בחריגה של ${money(Math.abs(balance))}. כדאי לבדוק אילו הוצאות אפשר לדחות.`;
-  if (balance === 0) return "התקציב מאוזן בדיוק. אין כרית ביטחון אחרי ההוצאות והחיסכון.";
-  return `נשארו לך ${money(balance)} אחרי ההורדות, ההוצאות ויעד החיסכון.`;
 }
 
 function getFastestGrowingCategory(snapshot: BudgetSnapshot, activeMonth: MonthKey): string {
